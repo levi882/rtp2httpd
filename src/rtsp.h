@@ -69,6 +69,12 @@ typedef enum {
   RTSP_AUTH_DIGEST
 } rtsp_auth_type_t;
 
+typedef enum {
+  RTSP_FAILURE_NONE = 0,
+  RTSP_FAILURE_UPSTREAM_404,
+  RTSP_FAILURE_REDIRECT_LIMIT
+} rtsp_failure_reason_t;
+
 /* RTSP protocol states - fully async state machine */
 typedef enum {
   RTSP_STATE_INIT = 0,
@@ -123,6 +129,9 @@ typedef struct {
   int server_port;                         /* RTSP server port */
   char server_path[RTSP_SERVER_PATH_SIZE]; /* RTSP path with query string */
   int redirect_count;                      /* Number of redirects followed */
+  rtsp_failure_reason_t last_failure_reason; /* Upstream failure classification
+                                                for negative cache */
+  int last_failure_status_code;              /* Last upstream RTSP status code */
   char r2h_start[RTSP_TIME_STRING_SIZE];
   int r2h_duration;
   float r2h_duration_value;
