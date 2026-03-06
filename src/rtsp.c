@@ -309,6 +309,7 @@ void rtsp_session_init(rtsp_session_t *session) {
   session->server_port = 554; /* Default RTSP port */
   session->redirect_count = 0;
   rtsp_clear_failure(session);
+  session->success_cache_stored = 0;
   session->r2h_start[0] = '\0';
   session->r2h_duration = 0;
   session->r2h_duration_value = -1;
