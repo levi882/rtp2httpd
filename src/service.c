@@ -24,6 +24,13 @@ typedef struct service_negative_cache_entry_s {
   struct service_negative_cache_entry_s *next;
 } service_negative_cache_entry_t;
 
+typedef struct service_success_cache_entry_s {
+  char *key;
+  char *rtsp_url;
+  int64_t expires_at_ms;
+  struct service_success_cache_entry_s *next;
+} service_success_cache_entry_t;
+
 /* RTP URL parsing helper structure */
 struct rtp_url_components {
   char multicast_addr[HTTP_ADDR_COMPONENT_SIZE];
@@ -43,8 +50,11 @@ struct rtp_url_components {
 static struct hashmap *service_map = NULL;
 static service_negative_cache_entry_t *service_negative_cache = NULL;
 static size_t service_negative_cache_size = 0;
+static service_success_cache_entry_t *service_success_cache = NULL;
+static size_t service_success_cache_size = 0;
 
 #define SERVICE_NEGATIVE_CACHE_MAX_ENTRIES 128
+#define SERVICE_SUCCESS_CACHE_MAX_ENTRIES 128
 
 static int service_is_negative_cache_eligible(const service_t *service) {
   return service && service->service_type == SERVICE_RTSP && service->rtsp_url &&
@@ -122,6 +132,55 @@ static void service_negative_cache_trim_to_limit(void) {
     free(entry->key);
     free(entry);
     service_negative_cache_size--;
+  }
+}
+
+static void service_success_cache_prune(int64_t now_ms) {
+  service_success_cache_entry_t *entry = service_success_cache;
+  service_success_cache_entry_t *prev = NULL;
+
+  while (entry) {
+    service_success_cache_entry_t *next = entry->next;
+    if (entry->expires_at_ms <= now_ms) {
+      if (prev) {
+        prev->next = next;
+      } else {
+        service_success_cache = next;
+      }
+      free(entry->key);
+      free(entry->rtsp_url);
+      free(entry);
+      if (service_success_cache_size > 0) {
+        service_success_cache_size--;
+      }
+    } else {
+      prev = entry;
+    }
+    entry = next;
+  }
+}
+
+static void service_success_cache_trim_to_limit(void) {
+  while (service_success_cache_size > SERVICE_SUCCESS_CACHE_MAX_ENTRIES &&
+         service_success_cache) {
+    service_success_cache_entry_t *prev = NULL;
+    service_success_cache_entry_t *entry = service_success_cache;
+
+    while (entry->next) {
+      prev = entry;
+      entry = entry->next;
+    }
+
+    if (prev) {
+      prev->next = NULL;
+    } else {
+      service_success_cache = NULL;
+    }
+
+    free(entry->key);
+    free(entry->rtsp_url);
+    free(entry);
+    service_success_cache_size--;
   }
 }
 
@@ -2052,4 +2111,91 @@ void service_negative_cache_store(const service_t *service,
   service_negative_cache = entry;
   service_negative_cache_size++;
   service_negative_cache_trim_to_limit();
+}
+
+int service_success_cache_lookup_rtsp_url(const service_t *service, char *output,
+                                          size_t output_size) {
+  char *key;
+  int64_t now_ms;
+  service_success_cache_entry_t *entry;
+
+  if (!output || output_size == 0) {
+    return 0;
+  }
+  output[0] = '\0';
+
+  key = service_negative_cache_build_key(service);
+  if (!key) {
+    return 0;
+  }
+
+  now_ms = get_time_ms();
+  service_success_cache_prune(now_ms);
+
+  for (entry = service_success_cache; entry; entry = entry->next) {
+    if (strcmp(entry->key, key) == 0) {
+      snprintf(output, output_size, "%s", entry->rtsp_url);
+      free(key);
+      return 1;
+    }
+  }
+
+  free(key);
+  return 0;
+}
+
+void service_success_cache_store_rtsp_url(const service_t *service,
+                                          const char *rtsp_url, int ttl_ms) {
+  char *key;
+  int64_t now_ms;
+  service_success_cache_entry_t *entry;
+
+  if (!rtsp_url || rtsp_url[0] == '\0' || ttl_ms <= 0) {
+    return;
+  }
+
+  key = service_negative_cache_build_key(service);
+  if (!key) {
+    return;
+  }
+
+  now_ms = get_time_ms();
+  service_success_cache_prune(now_ms);
+
+  for (entry = service_success_cache; entry; entry = entry->next) {
+    if (strcmp(entry->key, key) == 0) {
+      char *new_url = strdup(rtsp_url);
+      if (!new_url) {
+        free(key);
+        return;
+      }
+      free(entry->rtsp_url);
+      entry->rtsp_url = new_url;
+      entry->expires_at_ms = now_ms + ttl_ms;
+      free(key);
+      return;
+    }
+  }
+
+  entry = calloc(1, sizeof(*entry));
+  if (!entry) {
+    logger(LOG_ERROR,
+           "Service: Failed to allocate success cache entry for RTSP catchup");
+    free(key);
+    return;
+  }
+
+  entry->rtsp_url = strdup(rtsp_url);
+  if (!entry->rtsp_url) {
+    free(entry);
+    free(key);
+    return;
+  }
+
+  entry->key = key;
+  entry->expires_at_ms = now_ms + ttl_ms;
+  entry->next = service_success_cache;
+  service_success_cache = entry;
+  service_success_cache_size++;
+  service_success_cache_trim_to_limit();
 }

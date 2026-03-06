@@ -267,4 +267,25 @@ void service_negative_cache_store(const service_t *service,
                                   service_negative_cache_status_t status,
                                   int ttl_ms);
 
+/**
+ * Lookup a previously successful final RTSP URL for an exact catchup request.
+ *
+ * @param service Service to check
+ * @param output Output buffer for cached RTSP URL
+ * @param output_size Output buffer size
+ * @return 1 if found, 0 otherwise
+ */
+int service_success_cache_lookup_rtsp_url(const service_t *service, char *output,
+                                          size_t output_size);
+
+/**
+ * Store the final successful RTSP URL for an exact catchup request.
+ *
+ * @param service Original service request key
+ * @param rtsp_url Final RTSP URL that reached PLAYING
+ * @param ttl_ms Time-to-live in milliseconds
+ */
+void service_success_cache_store_rtsp_url(const service_t *service,
+                                          const char *rtsp_url, int ttl_ms);
+
 #endif /* SERVICE_H */

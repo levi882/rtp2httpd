@@ -24,6 +24,7 @@
 
 #define RTSP_NEGATIVE_CACHE_TTL_404_MS 60000
 #define RTSP_NEGATIVE_CACHE_TTL_REDIRECT_MS 30000
+#define RTSP_SUCCESS_CACHE_TTL_MS 120000
 
 /*
  * Process RTP payload with reordering - either forward to client (streaming)
@@ -125,6 +126,13 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events,
       /* Real error */
       logger(LOG_ERROR, "RTSP: Socket event handling failed");
       return -1;
+    }
+    if (ctx->rtsp.state == RTSP_STATE_PLAYING && !ctx->rtsp.success_cache_stored &&
+        ctx->service && ctx->service->service_type == SERVICE_RTSP &&
+        ctx->service->seek_param_value && ctx->service->seek_param_value[0] != '\0') {
+      service_success_cache_store_rtsp_url(ctx->service, ctx->rtsp.server_url,
+                                           RTSP_SUCCESS_CACHE_TTL_MS);
+      ctx->rtsp.success_cache_stored = 1;
     }
     if (result > 0) {
       ctx->total_bytes_sent += (uint64_t)result;

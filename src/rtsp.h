@@ -130,6 +130,7 @@ typedef struct {
   rtsp_failure_reason_t last_failure_reason; /* Upstream failure classification
                                                 for negative cache */
   int last_failure_status_code;              /* Last upstream RTSP status code */
+  int success_cache_stored;                  /* Final successful URL cached */
   char r2h_start[RTSP_TIME_STRING_SIZE];
   int r2h_duration;
   float r2h_duration_value;

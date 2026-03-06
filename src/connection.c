@@ -938,6 +938,7 @@ int connection_route_and_start(connection_t *c) {
       service->seek_param_value[0] != '\0') {
     service_negative_cache_status_t negative_cache_status =
         SERVICE_NEGATIVE_CACHE_NONE;
+    char cached_rtsp_url[2048];
     if (service_negative_cache_lookup(service, &negative_cache_status)) {
       logger(LOG_INFO, "RTSP: Negative cache hit for catchup request: %s",
              c->http_req.url);
@@ -948,6 +949,16 @@ int connection_route_and_start(connection_t *c) {
       }
       service_free(service);
       return 0;
+    }
+    if (service_success_cache_lookup_rtsp_url(service, cached_rtsp_url,
+                                              sizeof(cached_rtsp_url))) {
+      char *cached_rtsp_url_copy = strdup(cached_rtsp_url);
+      if (cached_rtsp_url_copy) {
+        logger(LOG_INFO, "RTSP: Success cache hit for catchup request: %s",
+               c->http_req.url);
+        free(service->rtsp_url);
+        service->rtsp_url = cached_rtsp_url_copy;
+      }
     }
   }
 
