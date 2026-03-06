@@ -56,11 +56,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-        working-directory: web-ui
 
       - name: Build frontend
-        run: pnpm run build
-        working-directory: web-ui
+        run: pnpm run web-ui:build
 
       - name: Save generated pages
         run: |
