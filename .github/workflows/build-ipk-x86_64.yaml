@@ -13,6 +13,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Restore OpenWrt download cache
+        uses: actions/cache@v4
+        with:
+          path: dl
+          key: openwrt-dl-${{ runner.os }}-x86_64-24.10.4-${{ hashFiles('**/Makefile', '**/*.mk') }}
+          restore-keys: |
+            openwrt-dl-${{ runner.os }}-x86_64-24.10.4-
+
       - name: Build with OpenWrt SDK
         uses: openwrt/gh-action-sdk@v9
         env:
