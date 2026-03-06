@@ -1,0 +1,34 @@
+name: Build x86_64 IPK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ipk:
+    name: Build x86_64-24.10.4 IPK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build with OpenWrt SDK
+        uses: openwrt/gh-action-sdk@v9
+        env:
+          ARCH: x86_64-24.10.4
+          NO_SHFMT_CHECK: true
+          PACKAGES: luci-app-rtp2httpd
+          V: sc
+
+      - name: Show built packages
+        run: |
+          set -x
+          ls -la bin/packages/x86_64/action/
+
+      - name: Upload IPK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rtp2httpd-x86_64-ipk
+          path: bin/packages/x86_64/action/*.ipk
+          if-no-files-found: error
