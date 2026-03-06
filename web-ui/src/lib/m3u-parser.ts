@@ -22,6 +22,7 @@ export function parseM3U(content: string): M3UMetadata {
 		tvgName?: string;
 		catchup?: string;
 		catchupSource?: string;
+		timeshiftLengthSeconds?: number;
 	} | null = null;
 
 	for (let i = 0; i < lines.length; i++) {
@@ -56,6 +57,7 @@ export function parseM3U(content: string): M3UMetadata {
 			const groupTitleMatch = line.match(/group-title="([^"]+)"/);
 			const catchupMatch = line.match(/catchup="([^"]+)"/);
 			const catchupSourceMatch = line.match(/catchup-source="([^"]+)"/);
+			const timeshiftLengthMatch = line.match(/x-r2h-timeshift-length="([0-9]+)"/);
 
 			// Extract channel name (after last comma)
 			const nameMatch = line.match(/,(.+)$/);
@@ -77,6 +79,7 @@ export function parseM3U(content: string): M3UMetadata {
 				tvgName: tvgNameMatch?.[1],
 				catchup: catchupMatch?.[1] || defaultCatchup,
 				catchupSource: catchupSourceMatch?.[1] || defaultCatchupSource,
+				timeshiftLengthSeconds: timeshiftLengthMatch ? Number(timeshiftLengthMatch[1]) : undefined,
 			};
 			continue;
 		}
@@ -102,7 +105,13 @@ export function parseM3U(content: string): M3UMetadata {
 				tvgId: currentExtinf.tvgId,
 				tvgName: currentExtinf.tvgName,
 				sources: [
-					{ url: line, catchup: currentExtinf.catchup, catchupSource: currentExtinf.catchupSource, label: sourceLabel },
+					{
+						url: line,
+						catchup: currentExtinf.catchup,
+						catchupSource: currentExtinf.catchupSource,
+						label: sourceLabel,
+						timeshiftLengthSeconds: currentExtinf.timeshiftLengthSeconds,
+					},
 				],
 			});
 			currentExtinf = null;

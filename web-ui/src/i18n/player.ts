@@ -46,6 +46,13 @@ const base: TranslationDict = {
 	mediaError: "Media error",
 	networkError: "Network error",
 	failedToPlay: "Failed to play",
+	catchupUnavailableRange: "This catchup time range is not available from the upstream server",
+	catchupUpstreamUnavailable: "The upstream catchup node is temporarily unavailable",
+	catchupRecentWindowNotice: "Recent programs are disabled because this upstream usually does not provide reliable catchup for them",
+	catchupDeclaredWindow: "Declared upstream catchup window",
+	catchupRecentProgramBlocked: "Recent program, catchup is likely unavailable",
+	catchupRecentBlockHours: "Recent catchup block window",
+	catchupRecentBlockHoursHint: "0 disables blocking, unit: hours",
 
 	// Rewind buttons
 	rewind30m: "-30m",
@@ -136,6 +143,13 @@ const zhHans: TranslationDict = {
 	mediaError: "媒体错误",
 	networkError: "网络错误",
 	failedToPlay: "播放失败",
+	catchupUnavailableRange: "该时间段暂无上游回看资源",
+	catchupUpstreamUnavailable: "上游回看节点暂时不可用",
+	catchupRecentWindowNotice: "近期节目已停用回看，因为上游通常不提供稳定资源",
+	catchupDeclaredWindow: "上游声明时移时长",
+	catchupRecentProgramBlocked: "近期节目回看大概率不可用",
+	catchupRecentBlockHours: "近期回看禁用窗口",
+	catchupRecentBlockHoursHint: "0 表示不禁用，单位小时",
 
 	// 时移按钮
 	rewind30m: "-30分钟",
@@ -227,6 +241,13 @@ const zhHant: TranslationDict = {
 	mediaError: "媒體錯誤",
 	networkError: "網絡錯誤",
 	failedToPlay: "播放失敗",
+	catchupUnavailableRange: "該時間段暫無上游回看資源",
+	catchupUpstreamUnavailable: "上游回看節點暫時不可用",
+	catchupRecentWindowNotice: "近期節目已停用回看，因為上游通常不提供穩定資源",
+	catchupDeclaredWindow: "上游聲明時移時長",
+	catchupRecentProgramBlocked: "近期節目回看大概率不可用",
+	catchupRecentBlockHours: "近期回看禁用窗口",
+	catchupRecentBlockHoursHint: "0 表示不禁用，單位小時",
 
 	// 時移按鈕
 	rewind30m: "-30分鐘",

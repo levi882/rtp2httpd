@@ -61,6 +61,14 @@ function cacheCatchupFailure(cacheKey: string, errorMessage: string): void {
 	});
 }
 
+function buildCatchupErrorMessage(playerError: PlayerError, t: (key: string) => string): string {
+	if (playerError.category === "io" && playerError.detail === "HttpStatusCodeInvalid") {
+		return t("catchupUnavailableRange");
+	}
+
+	return t("catchupUpstreamUnavailable");
+}
+
 export function VideoPlayer({
 	channel,
 	segments,
@@ -239,6 +247,10 @@ export function VideoPlayer({
 			playMode === "catchup" &&
 			!decodingErrorRetry &&
 			(playerError.category === "io" || playerError.category === "media" || playerError.category === "demux");
+
+		if (isCatchupFailure) {
+			errorMessage = buildCatchupErrorMessage(playerError, t);
+		}
 
 		if (isCatchupFailure) {
 			if (currentSegmentsKeyRef.current) {
