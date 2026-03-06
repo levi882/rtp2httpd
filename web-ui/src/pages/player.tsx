@@ -57,6 +57,7 @@ function PlayerPage() {
 	// For live mode: null (no seeking)
 	// For catchup mode: the time user seeked to (start of catchup stream)
 	const [streamStartTime, setStreamStartTime] = useState<Date>(() => new Date());
+	const [streamEndTime, setStreamEndTime] = useState<Date>(() => new Date());
 
 	// Track current video playback time in seconds (relative to stream start)
 	const [currentVideoTime, setCurrentVideoTime] = useState(0);
@@ -104,7 +105,7 @@ function PlayerPage() {
 
 		// Source supports catchup: use it
 		if (activeSource.catchup && activeSource.catchupSource) {
-			setPlaybackSegments(buildCatchupSegments(activeSource, streamStartTime, catchupTailOffset));
+			setPlaybackSegments(buildCatchupSegments(activeSource, streamStartTime, streamEndTime, catchupTailOffset));
 			setPlayMode("catchup");
 			return;
 		}
@@ -120,7 +121,8 @@ function PlayerPage() {
 
 		// No source supports catchup, fall back to live
 		setStreamStartTime(new Date());
-	}, [currentChannel, activeSource, activeSourceIndex, streamStartTime, catchupTailOffset]);
+		setStreamEndTime(new Date());
+	}, [currentChannel, activeSource, activeSourceIndex, streamStartTime, streamEndTime, catchupTailOffset]);
 
 	const handleVideoSeek = useCallback(
 		(seekTime: Date) => {
@@ -128,20 +130,29 @@ function PlayerPage() {
 			if (seekTime.getTime() > now.getTime() - 30 * 1000) {
 				if (streamStartTime < seekTime) {
 					setStreamStartTime(now);
+					setStreamEndTime(now);
 				} else {
 					setStreamStartTime(new Date(now.getTime() - 30 * 1000));
+					setStreamEndTime(now);
 				}
 			} else {
 				setStreamStartTime(seekTime);
+				setStreamEndTime((prev) => (prev.getTime() <= now.getTime() ? prev : now));
 			}
 		},
 		[streamStartTime],
 	);
 
+	const handleProgramSelect = useCallback((programStart: Date, programEnd: Date) => {
+		setStreamStartTime(programStart);
+		setStreamEndTime(programEnd);
+	}, []);
+
 	const handleSourceChange = useCallback(
 		(sourceIndex: number) => {
 			if (playMode === "live") {
 				setStreamStartTime(new Date());
+				setStreamEndTime(new Date());
 			} else {
 				// Preserve current playback position when switching source in catchup mode
 				setStreamStartTime(new Date(streamStartTime.getTime() + currentVideoTime * 1000));
@@ -162,6 +173,7 @@ function PlayerPage() {
 		const lastSource = getLastSourceIndex(channel.id);
 		setActiveSourceIndex(lastSource < channel.sources.length ? lastSource : 0);
 		setStreamStartTime(new Date());
+		setStreamEndTime(new Date());
 	}, []);
 
 	// Save last played channel when in live mode
@@ -456,7 +468,7 @@ function PlayerPage() {
 							<EPGView
 								channelId={currentChannel ? getEPGChannelId(currentChannel, epgData) : null}
 								epgData={epgData}
-								onProgramSelect={handleVideoSeek}
+								onProgramSelect={handleProgramSelect}
 								locale={locale}
 								supportsCatchup={!!currentChannel?.sources.some((s) => s.catchup && s.catchupSource)}
 								currentPlayingProgram={currentVideoProgram}
