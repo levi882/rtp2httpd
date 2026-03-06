@@ -168,6 +168,16 @@ export function buildCatchupSegments(
 	const segments: PlayerSegment[] = [];
 	const liveTailTime = new Date(now.getTime() + tailOffsetSeconds * 1000);
 	const effectiveEndTime = endTime && endTime.getTime() < liveTailTime.getTime() ? endTime : liveTailTime;
+	const isRtspCatchupSource =
+		source.catchupSource.includes("/rtsp/") ||
+		source.catchupSource.startsWith("rtsp://") ||
+		source.url.includes("/rtsp/") ||
+		source.url.startsWith("rtsp://");
+	const minWindowMs = isRtspCatchupSource ? 5 * 60 * 1000 : 10 * 1000;
+	const effectiveWindowEndTime =
+		effectiveEndTime.getTime() - startTime.getTime() >= minWindowMs
+			? effectiveEndTime
+			: new Date(Math.min(startTime.getTime() + minWindowMs, liveTailTime.getTime()));
 
 	/**
 	 * Parse long date format like yyyyMMddHHmmss
@@ -447,17 +457,20 @@ export function buildCatchupSegments(
 		}
 	};
 
-	// Segment duration uses the bounded playback window instead of always extending to "now".
+	// RTSP catchup backends often reject very short playseek windows, so force a larger
+	// minimum window for those sources while still clamping to the live tail.
 	const segmentDurationMs = Math.min(
-		Math.max(effectiveEndTime.getTime() - startTime.getTime(), 10000), // min 10s
+		Math.max(effectiveWindowEndTime.getTime() - startTime.getTime(), minWindowMs),
 		5 * 60 * 60 * 1000, // max 5 hours
 	);
 	const segmentDurationSec = segmentDurationMs / 1000;
 
 	// Build segments only within the requested playback window.
 	let currentTime = new Date(startTime.getTime());
-	while (currentTime < effectiveEndTime) {
-		const segmentEndTime = new Date(Math.min(currentTime.getTime() + segmentDurationMs, effectiveEndTime.getTime()));
+	while (currentTime < effectiveWindowEndTime) {
+		const segmentEndTime = new Date(
+			Math.min(currentTime.getTime() + segmentDurationMs, effectiveWindowEndTime.getTime()),
+		);
 
 		segments.push({
 			duration: segmentDurationSec,
