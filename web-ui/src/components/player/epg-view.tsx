@@ -13,6 +13,8 @@ interface EPGViewProps {
 	locale: Locale;
 	supportsCatchup: boolean;
 	currentPlayingProgram: EPGProgram | null;
+	catchupRecentBlockHours: number;
+	declaredCatchupLengthSeconds?: number;
 }
 
 export const nextScrollBehaviorRef: RefObject<"smooth" | "instant" | "skip"> = { current: "instant" };
@@ -24,6 +26,8 @@ function EPGViewComponent({
 	locale,
 	supportsCatchup,
 	currentPlayingProgram,
+	catchupRecentBlockHours,
+	declaredCatchupLengthSeconds,
 }: EPGViewProps) {
 	const t = usePlayerTranslation(locale);
 	const currentProgramRef = useRef<HTMLButtonElement>(null);
@@ -133,6 +137,29 @@ function EPGViewComponent({
 		return program.end <= currentTime;
 	};
 
+	const formatDeclaredCatchupLength = (seconds: number) => {
+		const hours = Math.floor(seconds / 3600);
+		const minutes = Math.floor((seconds % 3600) / 60);
+
+		if (locale === "zh-Hans" || locale === "zh-Hant") {
+			if (hours > 0 && minutes > 0) return `${hours}小时${minutes}分钟`;
+			if (hours > 0) return `${hours}小时`;
+			return `${minutes}分钟`;
+		}
+
+		if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+		if (hours > 0) return `${hours}h`;
+		return `${minutes}m`;
+	};
+
+	const isRecentCatchupBlocked = (program: EPGProgram) => {
+		if (catchupRecentBlockHours <= 0) return false;
+		return (
+			isPastProgram(program) &&
+			program.end.getTime() > currentTime.getTime() - catchupRecentBlockHours * 60 * 60 * 1000
+		);
+	};
+
 	const isCurrentlyPlaying = (program: EPGProgram) => {
 		return currentPlayingProgram?.id === program.id;
 	};
@@ -143,6 +170,16 @@ function EPGViewComponent({
 
 	return (
 		<div className="h-full overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+			{supportsCatchup && (catchupRecentBlockHours > 0 || (declaredCatchupLengthSeconds ?? 0) > 0) && (
+				<div className="mx-2 mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+					{catchupRecentBlockHours > 0 && <div>{t("catchupRecentWindowNotice")}</div>}
+					{declaredCatchupLengthSeconds && declaredCatchupLengthSeconds > 0 && (
+						<div className="mt-1 text-[11px] text-amber-800/80 dark:text-amber-200/80">
+							{t("catchupDeclaredWindow")}: {formatDeclaredCatchupLength(declaredCatchupLengthSeconds)}
+						</div>
+					)}
+				</div>
+			)}
 			<div className="relative">
 				{Array.from(programsByDate.entries()).map(([dateKey, programs]) => {
 					const date = new Date(dateKey);
@@ -160,26 +197,43 @@ function EPGViewComponent({
 										const onAir = isOnAir(program);
 										const isPast = isPastProgram(program);
 										const playing = isCurrentlyPlaying(program);
+										const recentCatchupBlocked = isRecentCatchupBlocked(program);
+										const canReplay = isPast && supportsCatchup && !recentCatchupBlocked;
+										const canGoLive = onAir;
+										const isInteractive = canReplay || canGoLive;
+										const title = recentCatchupBlocked
+											? t("catchupRecentProgramBlocked")
+											: canReplay
+												? t("replay")
+												: canGoLive
+													? t("onAir")
+													: undefined;
 
 										return (
 											<button
 												type="button"
 												key={program.id}
 												ref={playing ? currentProgramRef : null}
+												disabled={!isInteractive}
+												title={title}
+												aria-disabled={!isInteractive}
 												className={clsx(
 													"rounded-xl border bg-card text-card-foreground shadow overflow-hidden transition duration-200 w-full text-left",
 													playing
 														? "border-primary bg-primary/5 shadow-md"
-														: isPast
+														: recentCatchupBlocked
+															? "border-border border-dashed opacity-45"
+															: isPast
 															? "border-border opacity-70"
 															: "border-border",
-													((isPast && supportsCatchup) || onAir) &&
+													isInteractive &&
 														"cursor-pointer hover:border-primary/50 hover:bg-muted/50 hover:opacity-100 hover:shadow-sm",
+													!isInteractive && "cursor-not-allowed",
 												)}
 												onClick={() => {
-													if (isPast && supportsCatchup) {
+													if (canReplay) {
 														handleProgramClick(program.start, program.end);
-													} else if (onAir) {
+													} else if (canGoLive) {
 														// Click on-air program to go live
 														const now = new Date();
 														handleProgramClick(now, now);
@@ -191,10 +245,15 @@ function EPGViewComponent({
 													<div className="flex shrink-0">
 														{playing ? (
 															<div className="h-8 md:h-10 w-1 rounded-full bg-primary" title={t("nowPlaying")} />
-														) : isPast && supportsCatchup ? (
+														) : canReplay ? (
 															<div
 																className="h-8 md:h-10 w-1 rounded-full bg-muted-foreground/30"
 																title={t("replay")}
+															/>
+														) : recentCatchupBlocked ? (
+															<div
+																className="h-8 md:h-10 w-1 rounded-full bg-amber-500/40"
+																title={t("catchupRecentProgramBlocked")}
 															/>
 														) : (
 															<div className="h-8 md:h-10 w-1 rounded-full bg-transparent" />
@@ -230,9 +289,14 @@ function EPGViewComponent({
 																<Circle className="h-2.5 w-2.5 md:h-3 md:w-3 text-primary fill-current" />
 															</span>
 														)}
-														{isPast && supportsCatchup && (
+														{canReplay && (
 															<span title={t("replay")}>
 																<History className="h-3 w-3 md:h-3.5 md:w-3.5 text-muted-foreground" />
+															</span>
+														)}
+														{recentCatchupBlocked && (
+															<span title={t("catchupRecentProgramBlocked")}>
+																<History className="h-3 w-3 md:h-3.5 md:w-3.5 text-amber-600/70" />
 															</span>
 														)}
 													</div>

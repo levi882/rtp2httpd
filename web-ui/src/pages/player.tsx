@@ -17,12 +17,14 @@ import { type EPGData, fillEPGGaps, getCurrentProgram, getEPGChannelId, loadEPG 
 import { buildCatchupSegments, parseM3U } from "../lib/m3u-parser";
 import {
 	getCatchupTailOffset,
+	getCatchupRecentBlockHours,
 	getForce16x9,
 	getLastChannelId,
 	getLastSourceIndex,
 	getMp2SoftDecode,
 	getSidebarVisible,
 	saveCatchupTailOffset,
+	saveCatchupRecentBlockHours,
 	saveForce16x9,
 	saveLastChannelId,
 	saveLastSourceIndex,
@@ -49,6 +51,7 @@ function PlayerPage() {
 	const [isFullscreen, setIsFullscreen] = useState(false);
 	const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
 	const [catchupTailOffset, setCatchupTailOffset] = useState(() => getCatchupTailOffset());
+	const [catchupRecentBlockHours, setCatchupRecentBlockHours] = useState(() => getCatchupRecentBlockHours());
 	const [force16x9, setForce16x9] = useState(() => getForce16x9());
 	const [mp2SoftDecode, setMp2SoftDecode] = useState(() => getMp2SoftDecode());
 	const pageContainerRef = useRef<HTMLDivElement>(null);
@@ -67,6 +70,10 @@ function PlayerPage() {
 
 	// Get the active source's URL and catchupSource
 	const activeSource = currentChannel?.sources[activeSourceIndex] ?? currentChannel?.sources[0];
+	const declaredCatchupLengthSeconds = useMemo(() => {
+		if (!currentChannel) return 0;
+		return currentChannel.sources.reduce((max, source) => Math.max(max, source.timeshiftLengthSeconds || 0), 0);
+	}, [currentChannel]);
 
 	// Track fullscreen state
 	useEffect(() => {
@@ -335,6 +342,11 @@ function PlayerPage() {
 		saveForce16x9(enabled);
 	}, []);
 
+	const handleCatchupRecentBlockHoursChange = useCallback((hours: number) => {
+		setCatchupRecentBlockHours(hours);
+		saveCatchupRecentBlockHours(hours);
+	}, []);
+
 	const handleMp2SoftDecodeChange = useCallback((enabled: boolean) => {
 		setMp2SoftDecode(enabled);
 		saveMp2SoftDecode(enabled);
@@ -358,6 +370,8 @@ function PlayerPage() {
 					onThemeChange={setTheme}
 					catchupTailOffset={catchupTailOffset}
 					onCatchupTailOffsetChange={handleCatchupTailOffsetChange}
+					catchupRecentBlockHours={catchupRecentBlockHours}
+					onCatchupRecentBlockHoursChange={handleCatchupRecentBlockHoursChange}
 					force16x9={force16x9}
 					onForce16x9Change={handleForce16x9Change}
 					mp2SoftDecode={mp2SoftDecode}
@@ -369,11 +383,13 @@ function PlayerPage() {
 		locale,
 		theme,
 		catchupTailOffset,
+		catchupRecentBlockHours,
 		force16x9,
 		mp2SoftDecode,
 		setLocale,
 		setTheme,
 		handleCatchupTailOffsetChange,
+		handleCatchupRecentBlockHoursChange,
 		handleForce16x9Change,
 		handleMp2SoftDecodeChange,
 	]);
@@ -472,6 +488,8 @@ function PlayerPage() {
 								locale={locale}
 								supportsCatchup={!!currentChannel?.sources.some((s) => s.catchup && s.catchupSource)}
 								currentPlayingProgram={currentVideoProgram}
+								catchupRecentBlockHours={catchupRecentBlockHours}
+								declaredCatchupLengthSeconds={declaredCatchupLengthSeconds}
 							/>
 						</Activity>
 					</div>

@@ -13,6 +13,8 @@ interface SettingsDropdownProps {
 	onThemeChange: (theme: ThemeMode) => void;
 	catchupTailOffset: number;
 	onCatchupTailOffsetChange: (offset: number) => void;
+	catchupRecentBlockHours: number;
+	onCatchupRecentBlockHoursChange: (hours: number) => void;
 	force16x9: boolean;
 	onForce16x9Change: (enabled: boolean) => void;
 	mp2SoftDecode: boolean;
@@ -26,6 +28,7 @@ const localeOptions: Array<{ value: Locale; label: string }> = [
 ];
 
 const themeOptions: ThemeMode[] = ["auto", "light", "dark"];
+const catchupRecentBlockHourPresets = [0, 3, 6, 10, 12, 24] as const;
 
 const themeLabels: Record<ThemeMode, TranslationKey> = {
 	auto: "themeAuto",
@@ -40,6 +43,8 @@ function SettingsDropdownComponent({
 	onThemeChange,
 	catchupTailOffset,
 	onCatchupTailOffsetChange,
+	catchupRecentBlockHours,
+	onCatchupRecentBlockHoursChange,
 	force16x9,
 	onForce16x9Change,
 	mp2SoftDecode,
@@ -48,12 +53,17 @@ function SettingsDropdownComponent({
 	const t = usePlayerTranslation(locale);
 	const [isOpen, setIsOpen] = useState(false);
 	const [localOffset, setLocalOffset] = useState(catchupTailOffset.toString());
+	const [localRecentBlockHours, setLocalRecentBlockHours] = useState(catchupRecentBlockHours);
 	const dropdownRef = useRef<HTMLDivElement>(null);
 
 	// Update local offset when catchupTailOffset prop changes
 	useEffect(() => {
 		setLocalOffset(catchupTailOffset.toString());
 	}, [catchupTailOffset]);
+
+	useEffect(() => {
+		setLocalRecentBlockHours(catchupRecentBlockHours);
+	}, [catchupRecentBlockHours]);
 
 	useEffect(() => {
 		function handleClickOutside(event: MouseEvent) {
@@ -80,9 +90,25 @@ function SettingsDropdownComponent({
 				// Reset to current value if invalid
 				setLocalOffset(catchupTailOffset.toString());
 			}
+
+			if (catchupRecentBlockHourPresets.includes(localRecentBlockHours as (typeof catchupRecentBlockHourPresets)[number])) {
+				if (localRecentBlockHours !== catchupRecentBlockHours) {
+					onCatchupRecentBlockHoursChange(localRecentBlockHours);
+				}
+			} else {
+				setLocalRecentBlockHours(catchupRecentBlockHours);
+			}
 		}
 		prevIsOpenRef.current = isOpen;
-	}, [isOpen, localOffset, catchupTailOffset, onCatchupTailOffsetChange]);
+	}, [
+		isOpen,
+		localOffset,
+		localRecentBlockHours,
+		catchupTailOffset,
+		catchupRecentBlockHours,
+		onCatchupTailOffsetChange,
+		onCatchupRecentBlockHoursChange,
+	]);
 
 	return (
 		<div className="relative" ref={dropdownRef}>
@@ -143,6 +169,24 @@ function SettingsDropdownComponent({
 								className="w-full px-2 py-1.5 text-sm rounded border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
 							/>
 							<p className="text-xs text-muted-foreground mt-1 px-1">{t("catchupTailOffsetHint")}</p>
+						</label>
+
+						<label className="block">
+							<span className="block text-xs font-medium text-muted-foreground mb-1.5 px-1">
+								{t("catchupRecentBlockHours")}
+							</span>
+							<select
+								value={localRecentBlockHours}
+								onChange={(e) => setLocalRecentBlockHours(Number(e.target.value))}
+								className="w-full px-2 py-1.5 text-sm rounded border border-border bg-background text-foreground cursor-pointer hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary"
+							>
+								{catchupRecentBlockHourPresets.map((hours) => (
+									<option key={hours} value={hours}>
+										{hours === 0 ? "0" : `${hours}h`}
+									</option>
+								))}
+							</select>
+							<p className="text-xs text-muted-foreground mt-1 px-1">{t("catchupRecentBlockHoursHint")}</p>
 						</label>
 
 						{/* Force 16:9 Aspect Ratio Toggle */}

@@ -3,6 +3,7 @@ export interface Source {
 	catchup?: string;
 	catchupSource?: string;
 	label?: string;
+	timeshiftLengthSeconds?: number;
 }
 
 export interface Channel {
