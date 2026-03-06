@@ -137,6 +137,15 @@ function EPGViewComponent({
 		return program.end <= currentTime;
 	};
 
+	const effectiveRecentBlockMs = useMemo(() => {
+		if (catchupRecentBlockHours <= 0) return 0;
+		const configuredMs = catchupRecentBlockHours * 60 * 60 * 1000;
+		if (!declaredCatchupLengthSeconds || declaredCatchupLengthSeconds <= 0) {
+			return configuredMs;
+		}
+		return Math.min(configuredMs, declaredCatchupLengthSeconds * 1000);
+	}, [catchupRecentBlockHours, declaredCatchupLengthSeconds]);
+
 	const formatDeclaredCatchupLength = (seconds: number) => {
 		const hours = Math.floor(seconds / 3600);
 		const minutes = Math.floor((seconds % 3600) / 60);
@@ -153,11 +162,8 @@ function EPGViewComponent({
 	};
 
 	const isRecentCatchupBlocked = (program: EPGProgram) => {
-		if (catchupRecentBlockHours <= 0) return false;
-		return (
-			isPastProgram(program) &&
-			program.end.getTime() > currentTime.getTime() - catchupRecentBlockHours * 60 * 60 * 1000
-		);
+		if (effectiveRecentBlockMs <= 0) return false;
+		return isPastProgram(program) && program.end.getTime() > currentTime.getTime() - effectiveRecentBlockMs;
 	};
 
 	const isCurrentlyPlaying = (program: EPGProgram) => {
@@ -170,9 +176,9 @@ function EPGViewComponent({
 
 	return (
 		<div className="h-full overflow-y-auto pb-[env(safe-area-inset-bottom)]">
-			{supportsCatchup && (catchupRecentBlockHours > 0 || (declaredCatchupLengthSeconds ?? 0) > 0) && (
+			{supportsCatchup && (effectiveRecentBlockMs > 0 || (declaredCatchupLengthSeconds ?? 0) > 0) && (
 				<div className="mx-2 mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-					{catchupRecentBlockHours > 0 && <div>{t("catchupRecentWindowNotice")}</div>}
+					{effectiveRecentBlockMs > 0 && <div>{t("catchupRecentWindowNotice")}</div>}
 					{declaredCatchupLengthSeconds && declaredCatchupLengthSeconds > 0 && (
 						<div className="mt-1 text-[11px] text-amber-800/80 dark:text-amber-200/80">
 							{t("catchupDeclaredWindow")}: {formatDeclaredCatchupLength(declaredCatchupLengthSeconds)}
