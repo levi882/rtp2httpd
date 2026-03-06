@@ -67,7 +67,7 @@ function hasHashInFilename(filename) {
 
 function scanDirectory(dir, baseDir = dir) {
 	const files = [];
-	const entries = readdirSync(dir);
+	const entries = readdirSync(dir).sort((a, b) => a.localeCompare(b));
 
 	for (const entry of entries) {
 		const fullPath = join(dir, entry);
@@ -103,7 +103,7 @@ function main() {
 	}
 
 	console.log(`Scanning directory: ${distDir}`);
-	const files = scanDirectory(distDir);
+	const files = scanDirectory(distDir).sort((a, b) => a.path.localeCompare(b.path));
 	console.log(`Found ${files.length} files`);
 
 	const embeddedFiles = [];
