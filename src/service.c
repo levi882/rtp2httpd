@@ -17,6 +17,13 @@
 /* GLOBALS */
 service_t *services = NULL;
 
+typedef struct service_negative_cache_entry_s {
+  char *key;
+  service_negative_cache_status_t status;
+  int64_t expires_at_ms;
+  struct service_negative_cache_entry_s *next;
+} service_negative_cache_entry_t;
+
 /* RTP URL parsing helper structure */
 struct rtp_url_components {
   char multicast_addr[HTTP_ADDR_COMPONENT_SIZE];
@@ -34,6 +41,89 @@ struct rtp_url_components {
 
 /* Service lookup hashmap for O(1) service lookup by URL */
 static struct hashmap *service_map = NULL;
+static service_negative_cache_entry_t *service_negative_cache = NULL;
+static size_t service_negative_cache_size = 0;
+
+#define SERVICE_NEGATIVE_CACHE_MAX_ENTRIES 128
+
+static int service_is_negative_cache_eligible(const service_t *service) {
+  return service && service->service_type == SERVICE_RTSP && service->rtsp_url &&
+         service->seek_param_value && service->seek_param_value[0] != '\0';
+}
+
+static char *service_negative_cache_build_key(const service_t *service) {
+  size_t rtsp_len, seek_name_len, seek_value_len;
+  char *key;
+
+  if (!service_is_negative_cache_eligible(service)) {
+    return NULL;
+  }
+
+  rtsp_len = strlen(service->rtsp_url);
+  seek_name_len =
+      service->seek_param_name ? strlen(service->seek_param_name) : 0;
+  seek_value_len = strlen(service->seek_param_value);
+
+  key = malloc(rtsp_len + seek_name_len + seek_value_len + 48);
+  if (!key) {
+    logger(LOG_ERROR,
+           "Service: Failed to allocate negative cache key for RTSP catchup");
+    return NULL;
+  }
+
+  snprintf(key, rtsp_len + seek_name_len + seek_value_len + 48, "%s|%s|%s|%d",
+           service->rtsp_url,
+           service->seek_param_name ? service->seek_param_name : "",
+           service->seek_param_value, service->seek_offset_seconds);
+  return key;
+}
+
+static void service_negative_cache_prune(int64_t now_ms) {
+  service_negative_cache_entry_t *entry = service_negative_cache;
+  service_negative_cache_entry_t *prev = NULL;
+
+  while (entry) {
+    service_negative_cache_entry_t *next = entry->next;
+    if (entry->expires_at_ms <= now_ms) {
+      if (prev) {
+        prev->next = next;
+      } else {
+        service_negative_cache = next;
+      }
+      free(entry->key);
+      free(entry);
+      if (service_negative_cache_size > 0) {
+        service_negative_cache_size--;
+      }
+    } else {
+      prev = entry;
+    }
+    entry = next;
+  }
+}
+
+static void service_negative_cache_trim_to_limit(void) {
+  while (service_negative_cache_size > SERVICE_NEGATIVE_CACHE_MAX_ENTRIES &&
+         service_negative_cache) {
+    service_negative_cache_entry_t *prev = NULL;
+    service_negative_cache_entry_t *entry = service_negative_cache;
+
+    while (entry->next) {
+      prev = entry;
+      entry = entry->next;
+    }
+
+    if (prev) {
+      prev->next = NULL;
+    } else {
+      service_negative_cache = NULL;
+    }
+
+    free(entry->key);
+    free(entry);
+    service_negative_cache_size--;
+  }
+}
 
 static int parse_ipv6_address(const char *input, char *addr, size_t addr_size,
                               const char **remainder) {
@@ -1885,4 +1975,81 @@ service_t *service_hashmap_get(const char *url) {
   }
 
   return *(service_t *const *)result;
+}
+
+int service_negative_cache_lookup(
+    const service_t *service, service_negative_cache_status_t *status_out) {
+  char *key;
+  int64_t now_ms;
+  service_negative_cache_entry_t *entry;
+
+  if (status_out) {
+    *status_out = SERVICE_NEGATIVE_CACHE_NONE;
+  }
+
+  key = service_negative_cache_build_key(service);
+  if (!key) {
+    return 0;
+  }
+
+  now_ms = get_time_ms();
+  service_negative_cache_prune(now_ms);
+
+  for (entry = service_negative_cache; entry; entry = entry->next) {
+    if (strcmp(entry->key, key) == 0) {
+      if (status_out) {
+        *status_out = entry->status;
+      }
+      free(key);
+      return 1;
+    }
+  }
+
+  free(key);
+  return 0;
+}
+
+void service_negative_cache_store(const service_t *service,
+                                  service_negative_cache_status_t status,
+                                  int ttl_ms) {
+  char *key;
+  int64_t now_ms;
+  service_negative_cache_entry_t *entry;
+
+  if (status == SERVICE_NEGATIVE_CACHE_NONE || ttl_ms <= 0) {
+    return;
+  }
+
+  key = service_negative_cache_build_key(service);
+  if (!key) {
+    return;
+  }
+
+  now_ms = get_time_ms();
+  service_negative_cache_prune(now_ms);
+
+  for (entry = service_negative_cache; entry; entry = entry->next) {
+    if (strcmp(entry->key, key) == 0) {
+      entry->status = status;
+      entry->expires_at_ms = now_ms + ttl_ms;
+      free(key);
+      return;
+    }
+  }
+
+  entry = calloc(1, sizeof(*entry));
+  if (!entry) {
+    logger(LOG_ERROR,
+           "Service: Failed to allocate negative cache entry for RTSP catchup");
+    free(key);
+    return;
+  }
+
+  entry->key = key;
+  entry->status = status;
+  entry->expires_at_ms = now_ms + ttl_ms;
+  entry->next = service_negative_cache;
+  service_negative_cache = entry;
+  service_negative_cache_size++;
+  service_negative_cache_trim_to_limit();
 }

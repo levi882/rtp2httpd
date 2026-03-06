@@ -31,6 +31,35 @@ interface VideoPlayerProps {
 }
 
 const MAX_RETRIES = 3;
+const CATCHUP_FAILURE_TTL_MS = 30_000;
+
+type CatchupFailureCacheEntry = {
+	expiresAt: number;
+	errorMessage: string;
+};
+
+const catchupFailureCache = new Map<string, CatchupFailureCacheEntry>();
+
+function buildSegmentsCacheKey(segments: PlayerSegment[]): string {
+	return segments.map((segment) => segment.url).join("\n");
+}
+
+function getCachedCatchupFailure(cacheKey: string): CatchupFailureCacheEntry | null {
+	const entry = catchupFailureCache.get(cacheKey);
+	if (!entry) return null;
+	if (entry.expiresAt <= Date.now()) {
+		catchupFailureCache.delete(cacheKey);
+		return null;
+	}
+	return entry;
+}
+
+function cacheCatchupFailure(cacheKey: string, errorMessage: string): void {
+	catchupFailureCache.set(cacheKey, {
+		expiresAt: Date.now() + CATCHUP_FAILURE_TTL_MS,
+		errorMessage,
+	});
+}
 
 export function VideoPlayer({
 	channel,
@@ -73,6 +102,7 @@ export function VideoPlayer({
 	const [retryBaseline, setRetryBaseline] = useState(0);
 	const [isRetrySeek, setIsRetrySeek] = useState(false);
 	const stablePlaybackTimeoutRef = useRef<number>(0);
+	const currentSegmentsKeyRef = useRef("");
 	// Whether to auto-play after player recreation (true for initial load and "go live")
 	const shouldAutoPlayRef = useRef(true);
 
@@ -205,8 +235,20 @@ export function VideoPlayer({
 			errorMessage = `${t("networkError")}: ${playerError.detail}`;
 		}
 
+		const isCatchupFailure =
+			playMode === "catchup" &&
+			!decodingErrorRetry &&
+			(playerError.category === "io" || playerError.category === "media" || playerError.category === "demux");
+
+		if (isCatchupFailure) {
+			if (currentSegmentsKeyRef.current) {
+				cacheCatchupFailure(currentSegmentsKeyRef.current, errorMessage);
+			}
+			console.log("Skipping automatic retry for catchup playback after upstream failure.");
+		}
+
 		// Check if we should retry
-		if (retryCount < retryBaseline + MAX_RETRIES) {
+		if (!isCatchupFailure && retryCount < retryBaseline + MAX_RETRIES) {
 			setRetryCount(retryCount + 1);
 			if (!decodingErrorRetry) {
 				console.log(`Retrying playback (attempt ${retryCount + 1 - retryBaseline}/${MAX_RETRIES})...`);
@@ -281,6 +323,21 @@ export function VideoPlayer({
 	// Load segments whenever they change (channel switch, seek, retry — all go through here)
 	const handleLoadSegments = useEffectEvent((newSegments: PlayerSegment[]) => {
 		if (!newSegments.length || !player) return;
+
+		const cacheKey = buildSegmentsCacheKey(newSegments);
+		currentSegmentsKeyRef.current = cacheKey;
+
+		if (playMode === "catchup") {
+			const cachedFailure = getCachedCatchupFailure(cacheKey);
+			if (cachedFailure) {
+				console.log("Skipping repeated catchup request due to recent upstream failure.");
+				setIsLoading(false);
+				setShowLoading(false);
+				setError(cachedFailure.errorMessage);
+				onError?.(cachedFailure.errorMessage);
+				return;
+			}
+		}
 
 		console.log("Loading segments...");
 

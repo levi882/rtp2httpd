@@ -35,6 +35,12 @@
 /* Service type enumeration */
 typedef enum { SERVICE_MRTP = 0, SERVICE_RTSP, SERVICE_HTTP } service_type_t;
 
+typedef enum {
+  SERVICE_NEGATIVE_CACHE_NONE = 0,
+  SERVICE_NEGATIVE_CACHE_NOT_FOUND,
+  SERVICE_NEGATIVE_CACHE_UNAVAILABLE
+} service_negative_cache_status_t;
+
 /* Service source enumeration - tracks where the service was created from */
 typedef enum {
   SERVICE_SOURCE_INLINE = 0,  /* From inline M3U in config file */
@@ -238,5 +244,27 @@ void service_hashmap_remove(service_t *service);
  * @return Pointer to service structure or NULL if not found
  */
 service_t *service_hashmap_get(const char *url);
+
+/**
+ * Check whether a RTSP catchup request recently failed upstream and should
+ * fail fast locally.
+ *
+ * @param service Service to check
+ * @param status_out Output cache status (optional)
+ * @return 1 if negative cache hit, 0 otherwise
+ */
+int service_negative_cache_lookup(
+    const service_t *service, service_negative_cache_status_t *status_out);
+
+/**
+ * Remember a recent upstream failure for a RTSP catchup request.
+ *
+ * @param service Service to cache
+ * @param status Cached failure status
+ * @param ttl_ms Time-to-live in milliseconds
+ */
+void service_negative_cache_store(const service_t *service,
+                                  service_negative_cache_status_t status,
+                                  int ttl_ms);
 
 #endif /* SERVICE_H */

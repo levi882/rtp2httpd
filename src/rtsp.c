@@ -66,6 +66,9 @@ static void rtsp_build_digest_response(rtsp_session_t *session,
                                        size_t response_size);
 static int rtsp_build_basic_auth_header(rtsp_session_t *session, char *output,
                                         size_t output_size);
+static void rtsp_clear_failure(rtsp_session_t *session);
+static void rtsp_set_failure(rtsp_session_t *session,
+                             rtsp_failure_reason_t reason, int status_code);
 
 static int rtsp_base64_encode(const uint8_t *input, size_t input_len,
                               char *output, size_t output_size) {
@@ -272,6 +275,23 @@ static int rtsp_build_basic_auth_header(rtsp_session_t *session, char *output,
   return 0;
 }
 
+static void rtsp_clear_failure(rtsp_session_t *session) {
+  if (!session) {
+    return;
+  }
+  session->last_failure_reason = RTSP_FAILURE_NONE;
+  session->last_failure_status_code = 0;
+}
+
+static void rtsp_set_failure(rtsp_session_t *session,
+                             rtsp_failure_reason_t reason, int status_code) {
+  if (!session) {
+    return;
+  }
+  session->last_failure_reason = reason;
+  session->last_failure_status_code = status_code;
+}
+
 void rtsp_session_init(rtsp_session_t *session) {
   memset(session, 0, sizeof(rtsp_session_t));
   session->initialized = 1;
@@ -284,6 +304,7 @@ void rtsp_session_init(rtsp_session_t *session) {
   session->cseq = 1;
   session->server_port = 554; /* Default RTSP port */
   session->redirect_count = 0;
+  rtsp_clear_failure(session);
   session->r2h_start[0] = '\0';
   session->r2h_duration = 0;
   session->r2h_duration_value = -1;
@@ -1705,6 +1726,7 @@ int rtsp_state_machine_advance(rtsp_session_t *session) {
     if (session->keepalive_interval_ms > 0 && session->last_keepalive_ms == 0) {
       session->last_keepalive_ms = get_time_ms();
     }
+    rtsp_clear_failure(session);
     logger(LOG_INFO, "RTSP: Stream started successfully");
     return 0;
 
@@ -2368,6 +2390,9 @@ static int rtsp_parse_response_header(rtsp_session_t *session,
       goto cleanup;
     }
 
+    if (status_code == 404) {
+      rtsp_set_failure(session, RTSP_FAILURE_UPSTREAM_404, status_code);
+    }
     logger(LOG_ERROR, "RTSP: Server returned error code %d", status_code);
     result = -1;
     goto cleanup;
@@ -2870,6 +2895,7 @@ static int rtsp_handle_redirect(rtsp_session_t *session, const char *location) {
 
   /* Check redirect limit */
   if (session->redirect_count >= RTSP_MAX_REDIRECTS) {
+    rtsp_set_failure(session, RTSP_FAILURE_REDIRECT_LIMIT, 0);
     logger(LOG_ERROR, "RTSP: Too many redirects (%d), giving up",
            session->redirect_count);
     return -1;

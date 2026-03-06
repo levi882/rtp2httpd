@@ -22,6 +22,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#define RTSP_NEGATIVE_CACHE_TTL_404_MS 60000
+#define RTSP_NEGATIVE_CACHE_TTL_REDIRECT_MS 30000
+
 /*
  * Process RTP payload with reordering - either forward to client (streaming)
  * or capture I-frame (snapshot)
@@ -95,6 +98,20 @@ int stream_handle_fd_event(stream_context_t *ctx, int fd, uint32_t events,
     /* Handle RTSP socket events (handshake and RTP data in PLAYING state) */
     int result = rtsp_handle_socket_event(&ctx->rtsp, events);
     if (result < 0) {
+      if (ctx->service && ctx->service->service_type == SERVICE_RTSP &&
+          ctx->service->seek_param_value &&
+          ctx->service->seek_param_value[0] != '\0') {
+        if (ctx->rtsp.last_failure_reason == RTSP_FAILURE_UPSTREAM_404) {
+          service_negative_cache_store(ctx->service,
+                                       SERVICE_NEGATIVE_CACHE_NOT_FOUND,
+                                       RTSP_NEGATIVE_CACHE_TTL_404_MS);
+        } else if (ctx->rtsp.last_failure_reason ==
+                   RTSP_FAILURE_REDIRECT_LIMIT) {
+          service_negative_cache_store(ctx->service,
+                                       SERVICE_NEGATIVE_CACHE_UNAVAILABLE,
+                                       RTSP_NEGATIVE_CACHE_TTL_REDIRECT_MS);
+        }
+      }
       /* -2 indicates graceful TEARDOWN completion, not an error */
       if (result == -2) {
         logger(LOG_DEBUG, "RTSP: Graceful TEARDOWN completed");
