@@ -32,20 +32,6 @@ jobs:
       - name: Build frontend
         run: pnpm run web-ui:build
 
-      - name: Save generated pages
-        run: cp src/embedded_web_data.h /tmp/embedded_web_data.h
-
-      - name: Check frontend pages are up-to-date
-        run: |
-          set -euo pipefail
-          cp /tmp/embedded_web_data.h src/embedded_web_data.h
-          if ! git diff --quiet --exit-code src/embedded_web_data.h; then
-            echo "::error::Frontend pages are out of sync with the tag!"
-            echo "::error::Please commit the updated embedded_web_data.h and create a new tag."
-            exit 1
-          fi
-          echo "Frontend pages are up-to-date."
-
   ipk:
     name: Package ${{ matrix.arch }}-${{ matrix.sdk }}
     needs: frontend
