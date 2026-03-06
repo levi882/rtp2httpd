@@ -6,34 +6,6 @@ on:
       - published
 
 jobs:
-  versioned:
-    name: Generate Versioned Makefiles
-    if: ${{ !github.event.release.prerelease }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Set version environment variable
-        run: |
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> $GITHUB_ENV
-
-      - name: Generate versioned Makefiles
-        run: ./scripts/generate-versioned-makefiles.sh
-
-      - name: Commit and push versioned Makefiles
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add openwrt-support/rtp2httpd/Makefile.versioned openwrt-support/luci-app-rtp2httpd/Makefile.versioned
-          git commit -m "chore: update versioned Makefiles for ${{ github.event.release.tag_name }}"
-          git push origin HEAD:main
-
   frontend:
     name: Build Frontend
     runs-on: ubuntu-latest
@@ -61,16 +33,7 @@ jobs:
         run: pnpm run web-ui:build
 
       - name: Save generated pages
-        run: |
-          cp src/embedded_web_data.h /tmp/embedded_web_data.h
-
-      - name: Upload page artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-pages
-          path: |
-            src/embedded_web_data.h
-          if-no-files-found: error
+        run: cp src/embedded_web_data.h /tmp/embedded_web_data.h
 
       - name: Check frontend pages are up-to-date
         run: |
@@ -78,63 +41,10 @@ jobs:
           cp /tmp/embedded_web_data.h src/embedded_web_data.h
           if ! git diff --quiet --exit-code src/embedded_web_data.h; then
             echo "::error::Frontend pages are out of sync with the tag!"
-            echo "::error::The built frontend files differ from those in the repository."
-            echo "::error::Please commit the updated frontend pages and create a new tag."
+            echo "::error::Please commit the updated embedded_web_data.h and create a new tag."
             exit 1
           fi
           echo "Frontend pages are up-to-date."
-
-  docker:
-    name: Docker Release
-    needs: frontend
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Set version environment variable
-        run: |
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> $GITHUB_ENV
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            RELEASE_VERSION=${{ env.RELEASE_VERSION }}
 
   ipk:
     name: Package ${{ matrix.arch }}-${{ matrix.sdk }}
@@ -145,31 +55,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch:
-          - x86_64
-          - aarch64_cortex-a53
-          - aarch64_cortex-a72
-          - aarch64_cortex-a76
-          - aarch64_generic
-          - arm_cortex-a5_vfpv4
-          - arm_cortex-a7
-          - arm_cortex-a7_neon-vfpv4
-          - arm_cortex-a7_vfpv4
-          - arm_cortex-a9
-          - arm_cortex-a9_neon
-          - arm_cortex-a9_vfpv3-d16
-          - arm_cortex-a15_neon-vfpv4
-          - mips_24kc
-          - mips_mips32
-          - mipsel_24kc
-          - mipsel_24kc_24kf
-          - mipsel_74kc
-          - mipsel_mips32
-          - riscv64_riscv64
-
-        sdk:
-          - "24.10.4" # For IPK
-          - "SNAPSHOT" # For APK
+        include:
+          - arch: x86_64
+            sdk: "24.10.4"
+            packages: "rtp2httpd luci-app-rtp2httpd"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -181,137 +70,16 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}-${{ matrix.sdk }}
           NO_SHFMT_CHECK: true
-          PACKAGES: ${{ matrix.arch == 'x86_64' && 'luci-app-rtp2httpd' || 'rtp2httpd' }}
+          PACKAGES: ${{ matrix.packages }}
           V: sc
 
       - name: Upload to release assets
         run: |
-          set -x
-          echo "Checking for built packages..."
-          ls -la bin/packages/${{ matrix.arch }}/action/ || echo "Directory not found"
-
-          # Upload IPK files if they exist (IPK already includes arch in filename)
-          if ls bin/packages/${{ matrix.arch }}/action/*.ipk 1> /dev/null 2>&1; then
-            echo "Uploading IPK files..."
-            gh release upload --repo ${{ github.repository }} ${{ github.event.release.tag_name }} bin/packages/${{ matrix.arch }}/action/*.ipk
-          else
-            echo "No IPK files found"
-          fi
-
-          # Upload APK files if they exist (rename to include arch suffix)
-          if ls bin/packages/${{ matrix.arch }}/action/*.apk 1> /dev/null 2>&1; then
-            echo "Processing APK files..."
-            for apk_file in bin/packages/${{ matrix.arch }}/action/*.apk; do
-              filename=$(basename "$apk_file")
-
-              # Skip luci packages (keep original name)
-              if [[ "$filename" == luci-* ]]; then
-                echo "Uploading luci package: $filename"
-                gh release upload --repo ${{ github.repository }} ${{ github.event.release.tag_name }} "$apk_file"
-                continue
-              fi
-
-              # Add architecture suffix for non-luci packages
-              # e.g., rtp2httpd-3.0.0_beta3-r1.apk -> rtp2httpd-3.0.0_beta3-r1_x86_64.apk
-              new_filename="${filename%.apk}_${{ matrix.arch }}.apk"
-              echo "Renaming: $filename -> $new_filename"
-              cp "$apk_file" "/tmp/$new_filename"
-              gh release upload --repo ${{ github.repository }} ${{ github.event.release.tag_name }} "/tmp/$new_filename"
-            done
-          else
-            echo "No APK files found"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  static-bin:
-    name: Static Binary ${{ matrix.arch }}
-    needs: frontend
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        arch:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
-          - armv7-unknown-linux-musleabi
-          - arm-unknown-linux-musleabihf
-          - arm-unknown-linux-musleabi
-          - mipsel-unknown-linux-musl
-          - mips-unknown-linux-musl
-          - mips64-unknown-linux-musl
-          - riscv64-unknown-linux-musl
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            autoconf \
-            automake \
-            build-essential \
-            pkg-config \
-            wget \
-            xz-utils
-
-      - name: Set version environment variable
-        run: |
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> $GITHUB_ENV
-
-      - name: Generate configure script
-        run: autoreconf -fi
-
-      - name: Build static binary
-        env:
-          TOOLCHAIN_PREFIX: ${{ matrix.arch }}
-        run: ./scripts/build-static.sh
-
-      - name: Prepare release artifact
-        id: prepare
-        run: |
-          ARCH="${{ matrix.arch }}"
-
-          if [[ "$ARCH" == arm* ]]; then
-            BASE_ARCH="${ARCH%%-*}"
-            if [[ "$ARCH" == *"eabihf"* ]]; then
-              ARCH_SHORT="${BASE_ARCH}-eabihf"
-            elif [[ "$ARCH" == *"eabi"* ]]; then
-              ARCH_SHORT="${BASE_ARCH}-eabi"
-            else
-              ARCH_SHORT="$BASE_ARCH"
-            fi
-          else
-            ARCH_SHORT="${ARCH%%-*}"
-          fi
-
-          BINARY_PATH="build-${ARCH}-static/dist/usr/bin/rtp2httpd"
-
-          if [ ! -f "$BINARY_PATH" ]; then
-            echo "Error: Binary not found at $BINARY_PATH"
-            exit 1
-          fi
-
-          OUTPUT_NAME="rtp2httpd-${RELEASE_VERSION}-${ARCH_SHORT}"
-          cp "$BINARY_PATH" "$OUTPUT_NAME"
-
-          file "$OUTPUT_NAME"
-          ls -lh "$OUTPUT_NAME"
-
-          echo "binary_name=$OUTPUT_NAME" >> $GITHUB_OUTPUT
-
-      - name: Upload to release assets
-        run: |
+          set -euo pipefail
+          ls -la bin/packages/${{ matrix.arch }}/action/
           gh release upload \
             --repo ${{ github.repository }} \
             ${{ github.event.release.tag_name }} \
-            ${{ steps.prepare.outputs.binary_name }}
+            bin/packages/${{ matrix.arch }}/action/*.ipk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
