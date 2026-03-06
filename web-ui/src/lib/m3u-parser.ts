@@ -170,6 +170,7 @@ export function buildCatchupSegments(
 	const effectiveEndTime = endTime && endTime.getTime() < liveTailTime.getTime() ? endTime : liveTailTime;
 	const isRtspCatchupSource =
 		source.catchupSource.includes("/rtsp/") ||
+		source.catchupSource.includes("/catchup") ||
 		source.catchupSource.startsWith("rtsp://") ||
 		source.url.includes("/rtsp/") ||
 		source.url.startsWith("rtsp://");
