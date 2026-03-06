@@ -29,7 +29,7 @@
 /* RTSP version and user agent */
 #define RTSP_VERSION "RTSP/1.0"
 #define USER_AGENT "rtp2httpd/" VERSION
-#define RTSP_MAX_REDIRECTS 5
+#define RTSP_MAX_REDIRECTS 12
 #define RTSP_KEEPALIVE_INTERVAL_MS 30000
 
 #define RTSP_RESPONSE_ADVANCE 1
