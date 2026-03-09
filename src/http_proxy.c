@@ -739,52 +739,57 @@ static int http_proxy_try_receive_response(http_proxy_session_t *session) {
       return 0; /* Keep buffering */
     }
 
-    /* Phase 2: Zero-copy streaming - recv directly to buffer pool */
-    buffer_ref_t *buf = buffer_pool_alloc();
-    if (!buf) {
-      logger(LOG_ERROR, "HTTP Proxy: Buffer pool exhausted");
-      return -1;
-    }
+    /* Phase 2: Zero-copy streaming - loop to drain socket buffer.
+     * Edge-triggered pollers (EPOLLET/EV_CLEAR) fire only once per state
+     * transition, so we must recv until EAGAIN to avoid stalling on
+     * responses larger than one buffer (e.g. EPG XML). */
+    for (;;) {
+      buffer_ref_t *buf = buffer_pool_alloc();
+      if (!buf) {
+        logger(LOG_ERROR, "HTTP Proxy: Buffer pool exhausted");
+        return -1;
+      }
 
-    received = recv(session->socket, buf->data, BUFFER_POOL_BUFFER_SIZE, 0);
+      received = recv(session->socket, buf->data, BUFFER_POOL_BUFFER_SIZE, 0);
 
-    if (received < 0) {
-      buffer_ref_put(buf);
-      if (errno == EAGAIN) {
+      if (received < 0) {
+        buffer_ref_put(buf);
+        if (errno == EAGAIN)
+          break; /* No more data right now */
+        logger(LOG_ERROR, "HTTP Proxy: Recv failed: %s", strerror(errno));
+        session->state = HTTP_PROXY_STATE_COMPLETE;
         return 0;
       }
-      logger(LOG_ERROR, "HTTP Proxy: Recv failed: %s", strerror(errno));
-      session->state = HTTP_PROXY_STATE_COMPLETE;
-      return 0;
-    }
 
-    if (received == 0) {
+      if (received == 0) {
+        buffer_ref_put(buf);
+        logger(LOG_DEBUG, "HTTP Proxy: Upstream closed connection");
+        session->state = HTTP_PROXY_STATE_COMPLETE;
+        break;
+      }
+
+      /* Queue for zero-copy send */
+      buf->data_size = received;
+      if (connection_queue_zerocopy(session->conn, buf) < 0) {
+        buffer_ref_put(buf);
+        logger(LOG_ERROR, "HTTP Proxy: Failed to queue body data");
+        return -1;
+      }
       buffer_ref_put(buf);
-      logger(LOG_DEBUG, "HTTP Proxy: Upstream closed connection");
-      session->state = HTTP_PROXY_STATE_COMPLETE;
-      return 0;
-    }
+      bytes_forwarded += (int)received;
 
-    /* Queue for zero-copy send */
-    buf->data_size = received;
-    if (connection_queue_zerocopy(session->conn, buf) < 0) {
-      buffer_ref_put(buf);
-      logger(LOG_ERROR, "HTTP Proxy: Failed to queue body data");
-      return -1;
-    }
-    buffer_ref_put(buf);
-    bytes_forwarded = (int)received;
+      /* Let connection_queue_zerocopy's internal batching mechanism handle
+       * POLLER_OUT - it uses zerocopy_should_flush() for optimal batching */
+      session->bytes_received += received;
 
-    /* Let connection_queue_zerocopy's internal batching mechanism handle
-     * POLLER_OUT - it uses zerocopy_should_flush() for optimal batching */
-    session->bytes_received += bytes_forwarded;
-
-    /* Check if we've received all content */
-    if (session->content_length >= 0 &&
-        session->bytes_received >= session->content_length) {
-      logger(LOG_DEBUG, "HTTP Proxy: Received all content (%zd bytes)",
-             session->bytes_received);
-      session->state = HTTP_PROXY_STATE_COMPLETE;
+      /* Check if we've received all content */
+      if (session->content_length >= 0 &&
+          session->bytes_received >= session->content_length) {
+        logger(LOG_DEBUG, "HTTP Proxy: Received all content (%zd bytes)",
+               session->bytes_received);
+        session->state = HTTP_PROXY_STATE_COMPLETE;
+        break;
+      }
     }
 
     return bytes_forwarded;
